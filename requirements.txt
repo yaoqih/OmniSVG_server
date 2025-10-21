@@ -1,0 +1,8 @@
+runpod
+fastapi
+uvicorn
+transformers
+Pillow
+PyYAML
+cairosvg
+qwen_vl_utils

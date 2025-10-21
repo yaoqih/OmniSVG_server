@@ -1,0 +1,5 @@
+{
+  "task_type": "text-to-svg",
+  "text": "Hello from test_input.json",
+  "return_png": true
+}

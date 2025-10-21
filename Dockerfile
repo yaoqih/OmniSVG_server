@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     libcairo2 \
+    libcairo2-dev \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libfontconfig1 \
@@ -32,14 +33,7 @@ RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch torchvision
 
 # Core Python deps
-RUN pip install --no-cache-dir \
-    runpod \
-    fastapi uvicorn \
-    transformers \
-    pillow \
-    pyyaml \
-    cairosvg \
-    qwen_vl_utils
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Default ENV (can be overridden by Runpod env settings)
 ENV WEIGHT_PATH=/runpod-volume/OmniSVG \

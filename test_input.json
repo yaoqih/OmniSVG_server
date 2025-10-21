@@ -1,5 +1,5 @@
 {
   "task_type": "text-to-svg",
-  "text": "Hello from test_input.json",
+  "text": "a red circle with a black border",
   "return_png": true
 }

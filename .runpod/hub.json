@@ -3,10 +3,13 @@
   "description": "Serverless SVG generation from text or image via Qwen-VL + custom decoder. Runpod-ready.",
   "type": "serverless",
   "category": "image",
-  "iconUrl": "https://example.com/icon.png",
   "config": {
     "runsOn": "GPU",
-    "containerDiskInGb": 20,
+    "containerDiskInGb": 5,
+    "gpuCount": 1,
+    "gpuIds": ["A40"],
+    "allowedCudaVersions": ["12.1"],
+    
     "presets": [
       {
         "name": "Default",

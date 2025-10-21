@@ -62,7 +62,7 @@ You can override these in the Runpod Hub UI. Defaults are encoded in [.runpod/hu
 The Hub will use [.runpod/tests.json](.runpod/tests.json) to validate the listing. The default test:
 - Sends a `text-to-svg` request with `"Hello world"`
 - Sets `ENABLE_DUMMY=true` so the test succeeds without your private model/weights
-- Targets GPU `"NVIDIA GeForce RTX 4090"` with CUDA 12.x
+- Targets GPU `"A40"` with CUDA 12.x
 
 ## Container
 

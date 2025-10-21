@@ -49,4 +49,4 @@ ENV WEIGHT_PATH=/runpod-volume/OmniSVG \
     ENABLE_DUMMY=true
 
 # Serverless entrypoint
-CMD ["python", "-u", "runpod_handler.py"]
+CMD ["python", "-u", "handler.py"]

@@ -7,7 +7,7 @@
     "runsOn": "GPU",
     "containerDiskInGb": 5,
     "gpuCount": 1,
-    "gpuIds": ["A40"],
+    "gpuIds": ["NVIDIA A40"],
     "allowedCudaVersions":[
       "12.1",
       "12.2",

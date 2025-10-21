@@ -1,0 +1,42 @@
+{
+  "tests": [
+    {
+      "name": "validation_text_input",
+      "input": {
+        "task_type": "text-to-svg",
+        "text": "Hello world",
+        "return_png": true
+      },
+      "timeout": 20000
+    },
+    {
+      "name": "validation_image_input",
+      "input": {
+        "task_type": "image-to-svg",
+        "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAuMBgq8vaf8AAAAASUVORK5CYII=",
+        "return_png": true
+      },
+      "timeout": 20000
+    }
+  ],
+  "config": {
+    "gpuTypeId": "NVIDIA GeForce RTX 4090",
+    "gpuCount": 1,
+    "env": [
+      {
+        "key": "ENABLE_DUMMY",
+        "value": "true"
+      }
+    ],
+    "allowedCudaVersions": [
+      "12.7",
+      "12.6",
+      "12.5",
+      "12.4",
+      "12.3",
+      "12.2",
+      "12.1",
+      "12.0"
+    ]
+  }
+}

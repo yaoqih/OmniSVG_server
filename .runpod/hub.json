@@ -1,0 +1,70 @@
+{
+  "title": "OmniSVG_server",
+  "description": "Serverless SVG generation from text or image via Qwen-VL + custom decoder. Runpod-ready.",
+  "type": "serverless",
+  "category": "image",
+  "iconUrl": "https://example.com/icon.png",
+  "config": {
+    "runsOn": "GPU",
+    "containerDiskInGb": 20,
+    "presets": [
+      {
+        "name": "Default",
+        "defaults": {
+          "WEIGHT_PATH": "/runpod-volume/OmniSVG",
+          "CONFIG_PATH": "/workspace/config.yaml",
+          "QWEN_LOCAL_DIR": "/runpod-volume/Qwen2.5-VL-3B-Instruct",
+          "SVG_TOKENIZER_CONFIG": "/workspace/config.yaml",
+          "ENABLE_DUMMY": "true"
+        }
+      }
+    ],
+    "env": [
+      {
+        "key": "WEIGHT_PATH",
+        "input": {
+          "name": "Weights path",
+          "type": "string",
+          "description": "Path to OmniSVG weights directory (mounted volume)",
+          "default": "/runpod-volume/OmniSVG"
+        }
+      },
+      {
+        "key": "CONFIG_PATH",
+        "input": {
+          "name": "Config YAML path",
+          "type": "string",
+          "description": "Path to config.yaml inside container",
+          "default": "/workspace/config.yaml"
+        }
+      },
+      {
+        "key": "QWEN_LOCAL_DIR",
+        "input": {
+          "name": "Qwen model directory or HF repo id",
+          "type": "string",
+          "description": "Local path or HuggingFace repo id for Qwen2.5-VL-3B-Instruct",
+          "default": "/runpod-volume/Qwen2.5-VL-3B-Instruct"
+        }
+      },
+      {
+        "key": "SVG_TOKENIZER_CONFIG",
+        "input": {
+          "name": "SVG tokenizer config",
+          "type": "string",
+          "description": "Path to SVG tokenizer config YAML",
+          "default": "/workspace/config.yaml"
+        }
+      },
+      {
+        "key": "ENABLE_DUMMY",
+        "input": {
+          "name": "Enable dummy mode",
+          "type": "boolean",
+          "description": "Return simple SVG without loading heavy models (for hub tests). Set false in production.",
+          "default": true
+        }
+      }
+    ]
+  }
+}

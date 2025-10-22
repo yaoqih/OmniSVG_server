@@ -17,5 +17,5 @@ runpod
 scikit_learn
 scipy
 Shapely
-transformers-4.51.3
+transformers==4.51.3
 uvicorn

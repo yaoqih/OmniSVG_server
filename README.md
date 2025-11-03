@@ -126,7 +126,7 @@ $env:ENDPOINT_ID="xxxxxxxxxxxxxxxx"
 
 - 安装依赖：
   ```bash
-  pip install -r requirements.txt
+  pip install -r requirements_client.txt
   # 若本地未安装 gradio，请执行：
   # pip install gradio
   ```

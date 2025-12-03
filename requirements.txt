@@ -19,5 +19,8 @@ scipy
 Shapely
 transformers==4.51.3
 uvicorn
-
+accelerate
 requests
+bitsandbytes
+torchvision
+huggingface_hub

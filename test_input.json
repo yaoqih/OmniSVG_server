@@ -1,5 +1,12 @@
 {
   "task_type": "text-to-svg",
   "text": "a red circle with a black border",
+  "model_size": "4B",
+  "num_candidates": 1,
+  "max_length": 512,
+  "temperature": 0.4,
+  "top_p": 0.9,
+  "top_k": 50,
+  "repetition_penalty": 1.05,
   "return_png": true
 }

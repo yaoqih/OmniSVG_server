@@ -6,28 +6,36 @@ Serverless SVG generation from text or images, powered by Qwen-VL and a custom s
 
 ## Components
 
-- Serverless handler: see [`runpod_handler.handler()`](runpod_handler.py:36)
-- Core service and inference utilities:
-  - [`service.load_models_once()`](service.py:192) — lazy, one-time model init
-  - [`service.process_text_to_svg_inputs()`](service.py:68) — text-to-svg preprocessing
-  - [`service.process_image_to_svg_inputs()`](service.py:93) — image-to-svg preprocessing
-  - [`service.generate_svg()`](service.py:126) — decoding to SVG and PNG
-  - [`service.b64_to_pil()`](service.py:46), [`service.pil_to_b64()`](service.py:51) — I/O helpers
+- Serverless handler: [`handler.handler()`](handler.py:34) — wraps `service.run_generation` for Runpod
+- Core service + inference helpers (`service.py`):
+  - `ensure_model_loaded()` / `load_models()` — lazy multi-model (4B / 8B) init
+  - `run_generation()` — shared entry for `/predict` and handler, returns multi-candidate payloads
+  - `prepare_inputs`, `generate_candidates`, `b64_to_pil`/`pil_to_b64` utilities
 - Minimal Qwen vision utility: [`qwen_vl_utils.process_vision_info()`](qwen_vl_utils.py:4)
+- Client tooling: [`gradio_runpod.py`](gradio_runpod.py) + [`runpod_client.py`](runpod_client.py)
 - Runpod Hub configuration: [.runpod/hub.json](.runpod/hub.json)
 - Runpod Tests configuration: [.runpod/tests.json](.runpod/tests.json)
 - Container build: [Dockerfile](Dockerfile)
 
 ## Runpod Serverless
 
-Handler entry: [`runpod_handler.py`](runpod_handler.py)
+Handler entry: [`handler.py`](handler.py)
 
 Event input schema (JSON in `event.input`):
 ```json
 {
   "task_type": "text-to-svg | image-to-svg",
-  "text": "optional (required for text-to-svg)",
-  "image_base64": "optional (required for image-to-svg)",
+  "text": "required for text-to-svg",
+  "image_base64": "required for image-to-svg (base64 PNG/JPEG/WEBP, no data: prefix)",
+  "model_size": "optional, defaults to config.default_model_size (4B | 8B)",
+  "task_subtype": "optional, overrides icon/illustration auto-detect",
+  "num_candidates": "optional, 1 ~ generation.max_num_candidates",
+  "max_length": "optional, 256 ~ 2048",
+  "temperature": "optional, float",
+  "top_p": "optional, float",
+  "top_k": "optional, int",
+  "repetition_penalty": "optional, float",
+  "replace_background": "optional, bool (image-to-svg)",
   "return_png": true
 }
 ```
@@ -35,8 +43,29 @@ Event input schema (JSON in `event.input`):
 Response:
 ```json
 {
-  "svg": "<svg ...>...</svg>",
-  "png_base64": "optional PNG preview (base64)",
+  "status": "ok | no_valid_candidates | error",
+  "task_type": "text-to-svg",
+  "model_size": "4B",
+  "subtype": "icon",
+  "parameters": {
+    "temperature": 0.4,
+    "top_p": 0.9,
+    "top_k": 50,
+    "repetition_penalty": 1.05,
+    "max_length": 512,
+    "num_candidates": 1
+  },
+  "candidates": [
+    {
+      "index": 1,
+      "path_count": 42,
+      "svg": "<svg ...>...</svg>",
+      "png_base64": "optional PNG preview"
+    }
+  ],
+  "primary_svg": "<svg ...>",
+  "primary_png_base64": "optional PNG preview",
+  "processed_input_png_base64": "image preview (image-to-svg)",
   "elapsed_ms": 1234
 }
 ```
@@ -47,22 +76,24 @@ Dummy mode:
 
 ## Environment Variables
 
-These are read by [`service.load_models_once()`](service.py:192) and the handler:
+Handled by `service.ensure_model_loaded()` / `handler.py`:
 
-- `WEIGHT_PATH` — path to your OmniSVG weights directory (default `/runpod-volume/OmniSVG`)
-- `CONFIG_PATH` — path to the project config YAML (default `/workspace/config.yaml`)
-- `QWEN_LOCAL_DIR` — local path (or HF repo id) for Qwen2.5-VL-3B-Instruct (default `/runpod-volume/Qwen2.5-VL-3B-Instruct`)
-- `SVG_TOKENIZER_CONFIG` — path to tokenizer config YAML (default `/workspace/config.yaml`)
-- `ENABLE_DUMMY` — whether to use dummy mode (default `true` in Hub; set to `false` for production)
+- `CONFIG_PATH` — config YAML path (default `/workspace/config.yaml`)
+- `WEIGHT_PATH` — fallback OmniSVG weights path or HF repo (default `/runpod-volume/OmniSVG`)
+- `WEIGHT_PATH_4B`, `WEIGHT_PATH_8B` — optional overrides for each model (default `/runpod-volume/OmniSVG1.1_4B` etc.)
+- `QWEN_LOCAL_DIR` — fallback Qwen model path / repo id (default `/runpod-volume/Qwen2.5-VL-3B-Instruct`)
+- `QWEN_MODEL_4B`, `QWEN_MODEL_8B` — optional overrides for each backbone (defaults `/runpod-volume/Qwen2.5-VL-3B-Instruct` and `/runpod-volume/Qwen2.5-VL-7B-Instruct`)
+- `SVG_TOKENIZER_CONFIG` — tokenizer config path (default `/workspace/config.yaml`)
+- `ENABLE_DUMMY` — return placeholder SVGs without loading weights (default `true` in Hub; set `false` for production)
 
-You can override these in the Runpod Hub UI. Defaults are encoded in [.runpod/hub.json](.runpod/hub.json).
+Defaults are encoded in [.runpod/hub.json](.runpod/hub.json) and surfaced as editable env fields.
 
 ## Tests (Runpod Hub)
 
-The Hub will use [.runpod/tests.json](.runpod/tests.json) to validate the listing. The default test:
-- Sends a `text-to-svg` request with `"Hello world"`
-- Sets `ENABLE_DUMMY=true` so the test succeeds without your private model/weights
-- Targets GPU `"A40"` with CUDA 12.x
+Hub validations use [.runpod/tests.json](.runpod/tests.json):
+- Text + image smoke tests send the latest parameter set (model size, sampling knobs, background toggle).
+- `ENABLE_DUMMY=true` is injected so tests succeed without your private weights.
+- GPU target: `A40` + CUDA 12.x (adjust as needed).
 
 ## Container
 
@@ -74,7 +105,7 @@ The [Dockerfile](Dockerfile) includes:
 
 Default CMD launches the serverless handler:
 ```
-CMD ["python", "-u", "runpod_handler.py"]
+CMD ["python", "-u", "handler.py"]
 ```
 
 ## Local (optional)
@@ -142,24 +173,24 @@ $env:ENDPOINT_ID="xxxxxxxxxxxxxxxx"
 
 ### 界面与使用
 
-客户端包含两个 Tab，风格与交互参考本仓库服务端风格：
+客户端包含与服务端一致的两个 Tab，并暴露所有关键参数：
 
-1) Text-to-SVG
-- 输入：文本（gr.Textbox）
-- 选项：return_png（默认 true）与执行方式（Dropdown，默认“同步(runsync)”）
-- 行为：调用 [`runpod_client.runsync()`](runpod_client.py:87) 或 [`runpod_client.run_async()`](runpod_client.py:121) 并传入 `text`
+1) **Text-to-SVG**
+   - 输入：prompt 文本（gr.Textbox）
+   - 模型选择：4B/8B 下拉框
+   - 采样设置：候选数量、max_length、temperature、top_p、top_k、repetition_penalty（折叠在高级设置）
+   - 行为：调用 [`runpod_client.runsync()`](runpod_client.py:87)，也可以扩展为 `run_async`
 
-2) Image-to-SVG
-- 输入：图像（gr.Image，type="pil"，image_mode="RGBA"）
-- 选项：return_png（默认 true）与执行方式（Dropdown，默认“同步(runsync)”）
-- 行为：将图像按需编码为 PNG base64（不带 data: 前缀）后调用 Runpod 端点
+2) **Image-to-SVG**
+   - 输入：图像（gr.Image，type="pil"，image_mode="RGBA"）
+   - 设置：同 Text 视图外加 `replace_background` 开关
+   - 行为：将图像编码为 base64 后调用 Runpod 端点
 
-输出组件（两种 Tab 相同）：
-- SVG 代码：gr.Textbox（带复制按钮）
-- PNG 预览：gr.Image（若返回 png_base64 则解码显示，否则为空）
-- 辅助状态信息：gr.Markdown（展示 status、delayTime、executionTime、elapsed_ms（若存在））
-
-顶部文案会提示可能的费用与时延（例如 A40 成本、冷启动与热请求差异），仅为提示不做计算。
+输出组件包括：
+- SVG 网格（HTML gallery）
+- SVG 代码（gr.Code）
+- PNG 预览（输入处理 + 主候选）
+- 运行状态文本（model / elapsed / message）
 
 ### 请求与返回结构（客户端侧）
 
@@ -169,19 +200,25 @@ $env:ENDPOINT_ID="xxxxxxxxxxxxxxxx"
     - `accept: application/json`
     - `authorization: RUNPOD_API_KEY`（值为环境变量内容）
     - `content-type: application/json`
-  - Body：
+  - Body（示例）：
     ```json
     {
       "input": {
-        "task_type": "text-to-svg | image-to-svg",
+        "task_type": "text-to-svg",
         "text": "...",
-        "image_base64": "...",
+        "model_size": "4B",
+        "num_candidates": 1,
+        "max_length": 512,
+        "temperature": 0.4,
+        "top_p": 0.9,
+        "top_k": 50,
+        "repetition_penalty": 1.05,
         "return_png": true
       }
     }
     ```
-  - 返回兼容两类格式：顶层业务字段或 `output` 包裹，统一解析为：
-    `{'svg': str, 'png_base64': str|null, 'elapsed_ms': int|null, 'status': str|null, 'delayTime': int|null, 'executionTime': int|null}`
+  - 返回兼容两类格式：顶层业务字段或 `output` 包裹，客户端统一解析为  
+    `{'status': str|null, 'svg': str|null, 'png_base64': str|null, 'candidates': list|null, 'parameters': dict|null, 'elapsed_ms': int|null, 'delayTime': int|null, 'executionTime': int|null, ...}`
 
 - 异步模式（队列轮询）：
   - POST 提交：`https://api.runpod.ai/v2/{ENDPOINT_ID}/run`

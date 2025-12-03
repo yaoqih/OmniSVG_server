@@ -66,12 +66,21 @@ def encode_image_to_base64(image: Union["Image.Image", "np.ndarray"]) -> str:
 def _parse_business_output(obj: Dict[str, Any]) -> Dict[str, Any]:
     """统一解析输出为规范结构。兼容顶层和 output 包裹。"""
     data = obj or {}
-    # 如果顶层有 output，则进入其中
     out = data.get("output") if isinstance(data.get("output"), dict) else data
 
-    # 业务字段
-    svg = out.get("svg")
-    png_b64 = out.get("png_base64")
+    candidates = out.get("candidates")
+    first_candidate = candidates[0] if isinstance(candidates, list) and candidates else {}
+
+    svg = (
+        out.get("primary_svg")
+        or first_candidate.get("svg")
+        or out.get("svg")
+    )
+    png_b64 = (
+        out.get("primary_png_base64")
+        or first_candidate.get("png_base64")
+        or out.get("png_base64")
+    )
     elapsed_ms = out.get("elapsed_ms")
     status = data.get("status") or out.get("status")
     delay_time = data.get("delayTime") if "delayTime" in data else out.get("delayTime")
@@ -84,26 +93,67 @@ def _parse_business_output(obj: Dict[str, Any]) -> Dict[str, Any]:
         "status": status if isinstance(status, str) else (str(status) if status is not None else None),
         "delayTime": int(delay_time) if isinstance(delay_time, (int, float)) else None,
         "executionTime": int(exec_time) if isinstance(exec_time, (int, float)) else None,
+        "task_type": out.get("task_type"),
+        "model_size": out.get("model_size"),
+        "subtype": out.get("subtype"),
+        "parameters": out.get("parameters"),
+        "num_candidates": out.get("num_candidates"),
+        "candidates": candidates if isinstance(candidates, list) else None,
+        "processed_input_png_base64": out.get("processed_input_png_base64"),
     }
+
+
+def _build_input_payload(
+    task_type: str,
+    text: Optional[str],
+    image_base64: Optional[str],
+    return_png: bool,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "task_type": task_type,
+        "text": text,
+        "image_base64": image_base64,
+        "return_png": bool(return_png),
+    }
+    if extra:
+        for key, value in extra.items():
+            if value is not None:
+                payload[key] = value
+    return {"input": payload}
 
 def runsync(
     task_type: str,
     text: Optional[str] = None,
     image_base64: Optional[str] = None,
+    *,
+    model_size: Optional[str] = None,
+    task_subtype: Optional[str] = None,
+    num_candidates: Optional[int] = None,
+    max_length: Optional[int] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    top_k: Optional[int] = None,
+    repetition_penalty: Optional[float] = None,
+    replace_background: Optional[bool] = None,
     return_png: bool = True,
     wait_ms: int = 120000,
 ) -> Dict[str, Any]:
     """同步调用 Runpod runsync 端点。"""
     api_key, endpoint_id = _get_env()
     url = f"{API_BASE}/{endpoint_id}/runsync?wait={wait_ms}"
-    payload = {
-        "input": {
-            "task_type": task_type,
-            "text": text,
-            "image_base64": image_base64,
-            "return_png": bool(return_png),
-        }
+    extra = {
+        "model_size": model_size,
+        "task_subtype": task_subtype,
+        "num_candidates": num_candidates,
+        "max_length": max_length,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "repetition_penalty": repetition_penalty,
+        "replace_background": replace_background,
     }
+    payload = _build_input_payload(task_type, text, image_base64, return_png, extra)
     try:
         resp = requests.post(url, headers=_headers(api_key), json=payload, timeout=(10, max(wait_ms / 1000, 30)))
         if resp.status_code != 200:
@@ -124,6 +174,16 @@ def run_async(
     task_type: str,
     text: Optional[str] = None,
     image_base64: Optional[str] = None,
+    *,
+    model_size: Optional[str] = None,
+    task_subtype: Optional[str] = None,
+    num_candidates: Optional[int] = None,
+    max_length: Optional[int] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    top_k: Optional[int] = None,
+    repetition_penalty: Optional[float] = None,
+    replace_background: Optional[bool] = None,
     return_png: bool = True,
     timeout_s: int = 180,
     base_interval_s: float = 2.0,
@@ -131,14 +191,18 @@ def run_async(
     """异步队列：提交任务后轮询 status。"""
     api_key, endpoint_id = _get_env()
     submit_url = f"{API_BASE}/{endpoint_id}/run"
-    payload = {
-        "input": {
-            "task_type": task_type,
-            "text": text,
-            "image_base64": image_base64,
-            "return_png": bool(return_png),
-        }
+    extra = {
+        "model_size": model_size,
+        "task_subtype": task_subtype,
+        "num_candidates": num_candidates,
+        "max_length": max_length,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "repetition_penalty": repetition_penalty,
+        "replace_background": replace_background,
     }
+    payload = _build_input_payload(task_type, text, image_base64, return_png, extra)
     t0 = time.time()
     try:
         s = requests.Session()

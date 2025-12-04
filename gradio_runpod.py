@@ -544,6 +544,45 @@ body {
     border-bottom: 1px dotted currentColor;
     padding-bottom: 2px;
 }
+
+/* Example grids */
+#prompt-examples .gallery,
+#image-examples .gallery {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: stretch;
+}
+#prompt-examples .gallery .gallery-item,
+#image-examples .gallery .gallery-item {
+    width: 100%;
+    display: flex;
+    align-items: stretch;
+}
+#prompt-examples .gallery .gallery-item > *,
+#image-examples .gallery .gallery-item > * {
+    width: 100%;
+}
+#prompt-examples .gallery .gallery-item > div,
+#image-examples .gallery .gallery-item > div {
+    min-width: 0 !important;
+    width: 100%;
+    display: block;
+    padding: 12px 14px;
+    border: 1px solid var(--border-elevated);
+    border-radius: 10px;
+    background: var(--surface-card);
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+#prompt-examples .gallery .gallery-item:hover > div,
+#image-examples .gallery .gallery-item:hover > div {
+    border-color: rgba(37, 99, 235, 0.55);
+    box-shadow: 0 12px 25px rgba(15, 23, 42, 0.25);
+    transform: translateY(-3px);
+}
 """
 
 TIPS_HTML = """
@@ -903,6 +942,8 @@ def build_ui():
     env_err = ensure_env_ready()
     example_texts = get_example_texts()
     example_images = get_example_images()
+    text_example_count = len(example_texts)
+    image_example_count = len(example_images)
 
     # 使用 Soft 主题作为基础，它比默认主题更现代、更圆润
     # 并允许 primary_hue 调整主色调
@@ -913,7 +954,35 @@ def build_ui():
     )
     dark_js = """
     function() {
-        document.body.classList.add('dark');
+        const ensureDark = () => {
+            document.body.classList.add('dark');
+        };
+        const removeExampleIframes = () => {
+            document
+                .querySelectorAll('#prompt-examples iframe, #image-examples iframe')
+                .forEach((el) => el.remove());
+        };
+        const hydrateExampleTitles = () => {
+            document
+                .querySelectorAll('#prompt-examples .gallery-item, #image-examples .gallery-item')
+                .forEach((btn) => {
+                    const textBlock = btn.querySelector('div');
+                    if (!textBlock) return;
+                    const text = textBlock.textContent?.trim();
+                    if (text) {
+                        btn.setAttribute('title', text);
+                        textBlock.setAttribute('title', text);
+                    }
+                });
+        };
+        const refresh = () => {
+            ensureDark();
+            removeExampleIframes();
+            hydrateExampleTitles();
+        };
+        refresh();
+        const observer = new MutationObserver(refresh);
+        observer.observe(document.body, { subtree: true, childList: true });
     }
     """
 
@@ -957,28 +1026,12 @@ def build_ui():
                 """
             )
 
-        gr.HTML(
-            """
-            <div class="gpu-notice">
-                <div class="gpu-pill">GPU STATUS</div>
-                <div class="gpu-copy">
-                    <div class="gpu-title">OmniSVG on Runpod</div>
-                    <div class="gpu-meta">4B prioritizes speed, 8B prioritizes fidelity.</div>
-                    <div class="gpu-inline">
-                        <span>4B cold start 60-90s · warm ~10s</span>
-                        <span>8B cold start 90-150s · warm ~20s</span>
-                    </div>
-                </div>
-            </div>
-            """
-        )
-
         with gr.Tabs():
             # --- TAB 1: Text to SVG ---
             with gr.TabItem("📝 Text to SVG", id="tab_txt"):
                 with gr.Row(equal_height=False):
                     # Left Column: Inputs
-                    with gr.Column(scale=1, min_width=320):
+                    with gr.Column(scale=1, min_width=800):
                         text_input = gr.Textbox(
                             label="Prompt / Description",
                             placeholder="e.g. A geometric minimalist logo of a blue whale...",
@@ -990,7 +1043,9 @@ def build_ui():
                             gr.Examples(
                                 examples=example_texts,
                                 inputs=[text_input],
-                                label="Example Prompts (30)",
+                                label=f"Example Prompts ({text_example_count})",
+                                examples_per_page=6,
+                                elem_id="prompt-examples",
                             )
                         text_input.render()
                         
@@ -1000,25 +1055,25 @@ def build_ui():
                                 choices=AVAILABLE_MODEL_SIZES,
                                 value=DEFAULT_MODEL_SIZE,
                                 label="Model Size",
-                                info="8B: Better Quality | 4B: Faster"
+                                info="8B: Better Quality cold start 90-150s · warm ~20s | 4B: Fastercold start 60-90s · warm ~10s"
                             )
-                            with gr.Row():
-                                text_num_candidates = gr.Slider(
-                                    1,
-                                    MAX_NUM_CANDIDATES,
-                                    value=min(6, MAX_NUM_CANDIDATES),
-                                    step=1,
-                                    label="Number of Candidates",
-                                    info="Generate 4-8 candidates and pick the best"
-                                )
-                                text_max_length = gr.Slider(
-                                    MIN_MAX_LENGTH,
-                                    MAX_MAX_LENGTH,
-                                    value=min(MAX_LENGTH, MAX_MAX_LENGTH),
-                                    step=64,
-                                    label="Max Token Length",
-                                    info="Lower = faster & simpler | Higher = slower & more detailed"
-                                )
+
+                            text_num_candidates = gr.Slider(
+                                1,
+                                MAX_NUM_CANDIDATES,
+                                value=min(6, MAX_NUM_CANDIDATES),
+                                step=1,
+                                label="Number of Candidates",
+                                info="Generate 4-8 candidates and pick the best"
+                            )
+                            text_max_length = gr.Slider(
+                                MIN_MAX_LENGTH,
+                                MAX_MAX_LENGTH,
+                                value=min(MAX_LENGTH, MAX_MAX_LENGTH),
+                                step=64,
+                                label="Max Token Length",
+                                info="Lower = faster & simpler | Higher = slower & more detailed"
+                            )
                             
                             with gr.Accordion("Advanced Parameters", open=False):
                                 text_temperature = gr.Slider(
@@ -1063,7 +1118,7 @@ def build_ui():
 
 
                     # Right Column: Output
-                    with gr.Column(scale=2, min_width=500):
+                    with gr.Column(scale=2):
                         text_gallery = gr.HTML(
                             value='<div class="empty-box">Generated SVGs will appear here once you run generation.</div>',
                             label="Gallery"
@@ -1085,9 +1140,8 @@ def build_ui():
 
             # --- TAB 2: Image to SVG ---
             with gr.TabItem("🖼️ Image to SVG", id="tab_img"):
-                gr.HTML(IMAGE_TIPS_HTML)
                 with gr.Row(equal_height=False):
-                    with gr.Column(scale=1, min_width=320):
+                    with gr.Column(scale=1, min_width=800):
                         image_input = gr.Image(
                             label="Upload Reference Image",
                             type="pil",
@@ -1099,23 +1153,22 @@ def build_ui():
                         with gr.Group(elem_classes=["settings-group"]):
                             gr.Markdown("### ⚙️ Generation Settings")
                             img_model = gr.Dropdown(choices=AVAILABLE_MODEL_SIZES, value=DEFAULT_MODEL_SIZE, label="Model Size")
-                            with gr.Row():
-                                img_num_candidates = gr.Slider(
-                                    1,
-                                    MAX_NUM_CANDIDATES,
-                                    value=DEFAULT_NUM_CANDIDATES,
-                                    step=1,
-                                    label="Number of Candidates",
-                                    info="More candidates = better odds of a great match"
-                                )
-                                img_max_length = gr.Slider(
-                                    MIN_MAX_LENGTH,
-                                    MAX_MAX_LENGTH,
-                                    value=min(MAX_LENGTH, MAX_MAX_LENGTH),
-                                    step=64,
-                                    label="Max Token Length",
-                                    info="Lower = faster & simpler | Higher = slower & detailed"
-                                )
+                            img_num_candidates = gr.Slider(
+                                1,
+                                MAX_NUM_CANDIDATES,
+                                value=DEFAULT_NUM_CANDIDATES,
+                                step=1,
+                                label="Number of Candidates",
+                                info="More candidates = better odds of a great match"
+                            )
+                            img_max_length = gr.Slider(
+                                MIN_MAX_LENGTH,
+                                MAX_MAX_LENGTH,
+                                value=min(MAX_LENGTH, MAX_MAX_LENGTH),
+                                step=64,
+                                label="Max Token Length",
+                                info="Lower = faster & simpler | Higher = slower & detailed"
+                            )
                             
                             img_replace_bg = gr.Checkbox(
                                 label="Auto-remove Background",
@@ -1145,18 +1198,17 @@ def build_ui():
                         )
                         
                         if example_images:
-                            gr.Examples(examples=example_images, inputs=[image_input], label="Example Images")
+                            gr.Examples(
+                                examples=example_images,
+                                inputs=[image_input],
+                                label=f"Example Images ({image_example_count})",
+                                examples_per_page=6,
+                                elem_id="image-examples",
+                            )
 
                     with gr.Column(scale=2, min_width=500):
-                        with gr.Row():
-                            image_processed = gr.Image(label="Processed Input Preview", type="pil", height=150, interactive=False, show_download_button=False)
-                        gr.HTML(
-                            """
-                            <div class="info-banner warning" style="margin: 8px 0;">
-                                <strong>Tip:</strong> Uploads with transparent or simple backgrounds convert best. Generate multiple candidates and choose the closest match.
-                            </div>
-                            """
-                        )
+                        gr.HTML(IMAGE_TIPS_HTML)
+                        image_processed = gr.Image(label="Processed Input Preview", type="pil", height=150, interactive=False, show_download_button=False)
                         image_gallery = gr.HTML(
                             value='<div class="empty-box">Generated SVGs will appear here after generation finishes.</div>',
                             label="Gallery"

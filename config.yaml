@@ -107,8 +107,8 @@ task_configs:
     default_repetition_penalty: 1.05
 
 generation:
-  default_num_candidates: 1
-  max_num_candidates: 4
+  default_num_candidates: 4
+  max_num_candidates: 8
   extra_candidates_buffer: 4
 
 validation:

@@ -29,6 +29,11 @@ with open(CONFIG_PATH, "r", encoding="utf-8") as f:
 image_cfg = _config.get("image", {})
 TARGET_IMAGE_SIZE = image_cfg.get("target_size", 448)
 
+model_cfg = _config.get("model", {})
+MAX_LENGTH = int(model_cfg.get("max_length", 1024))
+MIN_MAX_LENGTH = 256
+MAX_MAX_LENGTH = 2048
+
 AVAILABLE_MODEL_SIZES = list(_config.get("models", {}).keys())
 if not AVAILABLE_MODEL_SIZES:
     raise ValueError("No models defined in config.yaml")
@@ -50,9 +55,6 @@ TASK_CONFIGS = {
 gen_config = _config.get("generation", {})
 DEFAULT_NUM_CANDIDATES = max(1, gen_config.get("default_num_candidates", 1))
 MAX_NUM_CANDIDATES = max(DEFAULT_NUM_CANDIDATES, gen_config.get("max_num_candidates", 4))
-MAX_LENGTH_MIN = 256
-MAX_LENGTH_MAX = 2048
-MAX_LENGTH_DEFAULT = 512
 
 try:
     RUNPOD_POLL_TIMEOUT_S = max(600, int(os.environ.get("RUNPOD_POLL_TIMEOUT_S", "480")))
@@ -307,6 +309,107 @@ body {
     color: var(--text-strong);
 }
 
+.red-box,
+.blue-box,
+.green-box {
+    border-radius: 12px;
+    padding: 16px;
+    margin: 12px 0;
+    border: 1px solid var(--border-elevated);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(148, 163, 184, 0.08));
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+.red-box {
+    border-color: rgba(248, 113, 113, 0.25);
+}
+.blue-box {
+    border-color: rgba(59, 130, 246, 0.25);
+}
+.green-box {
+    border-color: rgba(34, 197, 94, 0.25);
+}
+.tip-category {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(148, 163, 184, 0.08));
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid var(--border-elevated);
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.05);
+}
+.tip-category.icons {
+}
+.tip-category.animals {
+}
+.tip-category.objects {
+}
+.tip-category h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-strong);
+}
+.tip-category p {
+    margin: 0 0 10px 0;
+    color: var(--text-subtle);
+}
+.tip-category code {
+    background: var(--surface-alt);
+    padding: 2px 6px;
+    border-radius: 6px;
+    margin-right: 4px;
+    display: inline-block;
+    font-size: 0.85em;
+}
+.example-prompt {
+    background: var(--surface-alt);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    border: 1px solid var(--border-elevated);
+}
+.red-tip {
+    color: #f97316;
+    font-weight: 600;
+}
+
+.info-banner {
+    background: var(--surface-card);
+    border: 1px solid var(--border-elevated);
+    border-radius: 12px;
+    padding: 12px 15px;
+    color: var(--text-strong);
+    box-shadow: 0 16px 35px rgba(15, 23, 42, 0.08);
+}
+.info-banner.warning {
+    border-left: 4px solid #f87171;
+}
+.info-banner.info {
+    border-left: 4px solid #3b82f6;
+}
+.info-banner.success {
+    border-left: 4px solid #22c55e;
+}
+.info-banner strong {
+    color: inherit;
+}
+
+.prompt-structure {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 10px;
+    border-left: 4px solid #4caf50;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(148, 163, 184, 0.08));
+    border: 1px solid var(--border-elevated);
+}
+.prompt-example {
+    background: var(--surface-alt);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    border: 1px solid var(--border-elevated);
+    margin-top: 10px;
+}
+
 .tip-card.tip-orange {
     background: linear-gradient(135deg, rgba(251, 191, 36, 0.18), rgba(251, 191, 36, 0.08));
     border-color: rgba(251, 191, 36, 0.4);
@@ -443,57 +546,145 @@ body {
 }
 """
 
-TIPS_HTML_BOTTOM = """
+TIPS_HTML = """
 <div class="tips-box">
-    <h3>💡 Tips & Guide</h3>
+    <h3>💡 Prompting Guide & Best Practices</h3>
     
-    <div class="tip-card tip-orange">
-        <strong>🎲 Not getting the result you want?</strong>
-        <p>This is normal! <strong>Click "Generate SVG" again to re-roll.</strong> Each run is different — try 2-3 attempts to find your favorite.</p>
-    </div>
-    
-    <div class="tip-card tip-green">
-        <strong>📝 Prompting Tips</strong>
-        <ul>
-            <li><strong>Use geometric descriptions:</strong> "triangular roof", "circular head", "oval body", "curved tail"</li>
-            <li><strong>Specify colors for each element:</strong> "red roof", "blue shirt", "black outline", "green grass"</li>
-            <li><strong>Keep it simple:</strong> short, clear phrases connected by commas</li>
-            <li><strong>Add positions:</strong> "at top", "centered", "at bottom", "facing right"</li>
+    <div class="red-box">
+        <strong>🚨 CRITICAL: Tips That WILL Improve Your Results</strong>
+        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+            <li>
+                <strong>Generate 4-8 candidates and pick the best one!</strong> Results vary significantly between generations - this is NORMAL!
+            </li>
+            <li>
+                <strong>Use GEOMETRIC descriptions:</strong> "triangular roof", "circular head", "rectangular body", "curved tail"
+            </li>
+            <li>
+                <strong>ALWAYS specify colors for EACH element:</strong> "black outline", "red roof", "blue shirt", "green grass"
+            </li>
+            <li>
+                <strong>Describe position & orientation:</strong> "centrally positioned", "pointing upward", "facing right", "at the bottom"
+            </li>
+            <li>
+                <strong>Keep it SIMPLE:</strong> Avoid complex sentences. Use short, clear phrases connected by commas.
+            </li>
         </ul>
     </div>
-    
-    <div class="tip-card tip-blue">
-        <strong>⚙️ Parameter Guide</strong>
-        <ul>
-            <li><strong>Max Length:</strong> Lower (256-1024) = faster & simpler | Higher (1024-2048) = slower & more detailed</li>
-            <li><strong>Temperature:</strong> Lower (0.2-0.4) = more accurate | Higher (0.5-0.7) = more creative</li>
-            <li><strong>Messy result?</strong> Lower temperature and top_k</li>
-            <li><strong>Too simple?</strong> Increase max_length and temperature</li>
-        </ul>
-    </div>
-    
-    <div class="tip-highlight">
-        <strong>✨ Recommended Prompt Structure</strong>
-        <div class="tip-code">
-            [Subject] + [Shape descriptions with colors] + [Position] + [Style]
+
+    <div class="prompt-structure">
+        <strong>🧩 Recommended Prompt Structure</strong>
+        <div class="prompt-example">
+            [Subject] + [Shape descriptions with colors] + [Position/orientation] + [Style]
         </div>
         <p class="tip-note">
-            Example: "A fox logo: triangular orange head, pointed ears, white chest, facing right. Minimalist flat style."
+            Example: "A fox logo: triangular orange head, pointed ears, white chest marking, facing right. Minimalist flat style, centered."
         </p>
     </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-top: 15px;">
+        <div class="tip-category icons">
+            <h4>🎯 Icons & Simple Shapes</h4>
+            <p>Use clear geometric descriptions with explicit colors.</p>
+            <div class="example-prompt">
+                "A black triangle pointing downward, centrally positioned."
+            </div>
+            <div class="example-prompt">
+                "A red heart shape with smooth curved edges, centered."
+            </div>
+            <p><strong>Keywords:</strong> <code>triangle</code> <code>circle</code> <code>arrow</code> <code>heart</code> <code>star</code> <code>centered</code></p>
+        </div>
+        
+        <div class="tip-category animals">
+            <h4>🐾 Animals</h4>
+            <p>Describe as geometric shapes: oval body, round head, triangular ears, curved tail.</p>
+            <div class="example-prompt">
+                "Cute cat: orange round head with two triangular ears, oval orange body, curved tail. Simple cartoon style with black outlines, sitting pose."
+            </div>
+            <div class="example-prompt">
+                "Simple black bird: oval body, small round head, pointed triangular beak facing right, triangular tail, two stick legs. Silhouette style."
+            </div>
+        </div>
+        
+        <div class="tip-category objects">
+            <h4>🏠 Buildings & Objects</h4>
+            <p>Use basic shapes: rectangles for walls, triangles for roofs, squares for windows.</p>
+            <div class="example-prompt">
+                "Simple house: red triangular roof on top, beige rectangular wall, brown rectangular door in center, two small blue square windows. Green ground at bottom."
+            </div>
+            <div class="example-prompt">
+                "Coffee mug: brown cylindrical cup shape with curved handle on right side, three wavy steam lines rising from top. Simple flat style."
+            </div>
+        </div>
+    </div>
+
+    <div class="blue-box">
+        <strong>🧠 Model Selection Guide</strong>
+        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+            <li><strong>8B Model:</strong> Higher quality, more details, better for complex illustrations. Requires more VRAM (~16GB+).</li>
+            <li><strong>4B Model:</strong> Faster, less VRAM required (~8GB+). Good for simple icons and basic shapes.</li>
+            <li><strong>Note:</strong> First generation with a new model size may take longer to load.</li>
+        </ul>
+    </div>
+    
+    <div class="green-box" style="margin-top: 15px;">
+        <strong>🛠️ Quick Troubleshooting</strong>
+        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+            <li><strong>Messy/chaotic?</strong> Lower temperature to 0.3-0.4, simplify description, reduce top_k</li>
+            <li><strong>Too simple/empty?</strong> Raise temperature to 0.5-0.6, add more shape details</li>
+            <li><strong>Wrong colors?</strong> Explicitly name EVERY color: "red roof", "blue shirt", "black outline"</li>
+            <li><strong>Missing elements?</strong> Add position words: "at top", "in center", "at bottom left"</li>
+            <li><strong>Repetitive patterns?</strong> Increase repetition_penalty to 1.08-1.15</li>
+            <li><strong>Inconsistent?</strong> Generate MORE candidates (6-8) and pick the best!</li>
+        </ul>
+    </div>
+    
 </div>
 """
 
 IMAGE_TIPS_HTML = """
-<div class="tip-card tip-orange image-tip-card">
+<div class="red-box">
     <strong>🖼️ Image-to-SVG Tips</strong>
-    <ul>
-        <li>Works best with simple, clear images (logos, icons, sketches).</li>
-        <li>Transparency is automatically handled.</li>
-        <li>Toggle "Replace background" if the output looks messy.</li>
+    <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+        <li><strong>Best input:</strong> Simple images with clean background</li>
+        <li><strong>PNG with transparency (RGBA) works best!</strong> We auto-convert to white background.</li>
+        <li><strong>For complex backgrounds:</strong> Enable "Replace Background" option below.</li>
+        <li><strong>Lower temperature (0.2-0.4)</strong> for more accurate reproduction.</li>
+        <li><strong>Generate 4-8 candidates!</strong> Pick the one that best matches your input.</li>
     </ul>
 </div>
 """
+
+DEFAULT_EXAMPLE_PROMPTS = [
+    "A black triangle pointing downward, centrally positioned.",
+    "A red heart shape with smooth curved edges, centered.",
+    "A yellow star with five sharp points, simple geometric design, flat color.",
+    "A blue arrow pointing to the right, thick solid shape, centered.",
+    "A green circle with a white checkmark inside, centered.",
+    "A black plus sign with equal length arms, thick lines, centered.",
+    "A simple person standing: round beige head, rectangular blue shirt body, two dark gray rectangular legs, arms at sides. Flat colors.",
+    "A girl with long black hair, wearing pink dress with triangular skirt, small circular face with dot eyes and curved smile. Simple cartoon style.",
+    "A child waving: large round head with brown messy hair, big circular eyes, small body in red t-shirt and blue shorts, one arm raised. Cheerful cartoon style.",
+    "A person sitting on chair: side view, round head, rectangular torso in green sweater, bent legs on simple chair shape. Relaxed pose.",
+    "A running person: side view silhouette in black, dynamic pose with one leg forward, arms pumping. Motion style.",
+    "Circular avatar: person with short black hair, round face with two dot eyes and small curved smile, wearing blue collar shirt. Minimal style, centered in circle.",
+    "Female avatar: oval face with long wavy brown hair, simple eyes, pink lips, wearing v-neck purple top. Soft cartoon style in circular frame.",
+    "Profile silhouette avatar: black side view of head with short hair and glasses outline, facing right. Simple solid shape.",
+    "Cute cartoon avatar: round face with big sparkly eyes, rosy cheeks, short bob haircut in orange. Kawaii style, circular frame.",
+    "Professional headshot avatar: person with neat hair, neutral expression, wearing suit collar. Corporate minimal style, circular frame.",
+    "Layered mountain landscape: light blue sky at top, gray triangular snow-capped mountains in middle, dark green triangular pine trees at bottom. Flat colors.",
+    "Sunset beach scene: orange gradient sky at top, yellow semicircle sun on horizon, dark blue wavy ocean, tan beach strip at bottom. Simple shapes.",
+    "Forest scene: light blue sky, row of 5 dark green triangular pine trees of varying heights on brown trunks, light green grass at bottom.",
+    "City skyline at dusk: purple-orange gradient sky, row of black rectangular building silhouettes of different heights, some with yellow window squares.",
+    "Desert landscape: light orange sky with white circle sun, tan sand dunes as curved shapes, one green cactus with arms on the right side.",
+    "Countryside scene: blue sky with white fluffy clouds, green rolling hills, small red barn with white door in the center, yellow hay bales.",
+    "Cute orange cat sitting: round head with two triangular ears, oval body, curved tail. Black outline cartoon style, facing forward.",
+    "Simple black bird: oval body, round head, pointed triangular beak facing right, triangular tail, two stick legs. Silhouette style.",
+    "Friendly cartoon dog: brown oval body, round head with floppy ears, black dot nose, wagging curved tail, four short legs. Sitting pose.",
+    "Red fox logo: triangular orange face with pointed ears, white chest marking, bushy tail. Minimalist style, facing right, centered.",
+    "Simple house icon: red triangular roof, beige rectangular walls, brown door in center, two blue square windows, green ground at bottom.",
+    "Coffee mug: brown cylindrical cup with curved handle on right, three wavy steam lines rising from top. Flat style.",
+    "Open book: two rectangular white pages spread open, black text lines on each page, brown spine in center. Simple top-down view."
+]
 
 
 def decode_png_base64(b64: Optional[str]) -> Optional[Image.Image]:
@@ -530,13 +721,7 @@ def get_example_texts() -> List[List[str]]:
                 except Exception:
                     pass
     if not texts:
-        defaults = [
-            "A red heart shape with smooth curved edges, centered.",
-            "Circular avatar: person with short black hair, dot eyes, blue shirt, minimal style.",
-            "Sunset beach with orange gradient sky, yellow sun on horizon, blue waves, tan sand.",
-            "Cute orange fox logo with triangular head, white chest, facing right, flat style.",
-        ]
-        texts = [[t] for t in defaults]
+        texts = [[t] for t in DEFAULT_EXAMPLE_PROMPTS]
     return texts
 
 
@@ -726,8 +911,13 @@ def build_ui():
         neutral_hue="slate",
         font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
     )
+    dark_js = """
+    function() {
+        document.body.classList.add('dark');
+    }
+    """
 
-    with gr.Blocks(title="OmniSVG Studio", css=CUSTOM_CSS, theme=theme) as demo:
+    with gr.Blocks(title="OmniSVG Studio", css=CUSTOM_CSS, theme=theme,js=dark_js) as demo:
         gr.HTML(
             """
             <script>
@@ -793,8 +983,16 @@ def build_ui():
                             label="Prompt / Description",
                             placeholder="e.g. A geometric minimalist logo of a blue whale...",
                             lines=4,
-                            elem_classes=["input-box"]
+                            elem_classes=["input-box"],
+                            render=False,
                         )
+                        if example_texts:
+                            gr.Examples(
+                                examples=example_texts,
+                                inputs=[text_input],
+                                label="Example Prompts (30)",
+                            )
+                        text_input.render()
                         
                         with gr.Group(elem_classes=["settings-group"]):
                             gr.Markdown("### ⚙️ Generation Settings")
@@ -805,31 +1003,75 @@ def build_ui():
                                 info="8B: Better Quality | 4B: Faster"
                             )
                             with gr.Row():
-                                text_num_candidates = gr.Slider(1, MAX_NUM_CANDIDATES, value=DEFAULT_NUM_CANDIDATES, step=1, label="Variations")
-                                text_max_length = gr.Slider(MAX_LENGTH_MIN, MAX_LENGTH_MAX, value=MAX_LENGTH_DEFAULT, step=64, label="Detail Level (Max Tokens)")
+                                text_num_candidates = gr.Slider(
+                                    1,
+                                    MAX_NUM_CANDIDATES,
+                                    value=min(6, MAX_NUM_CANDIDATES),
+                                    step=1,
+                                    label="Number of Candidates",
+                                    info="Generate 4-8 candidates and pick the best"
+                                )
+                                text_max_length = gr.Slider(
+                                    MIN_MAX_LENGTH,
+                                    MAX_MAX_LENGTH,
+                                    value=min(MAX_LENGTH, MAX_MAX_LENGTH),
+                                    step=64,
+                                    label="Max Token Length",
+                                    info="Lower = faster & simpler | Higher = slower & more detailed"
+                                )
                             
                             with gr.Accordion("Advanced Parameters", open=False):
-                                text_temperature = gr.Slider(0.1, 1.0, value=TASK_CONFIGS["text-to-svg-icon"].get("default_temperature", 0.5), step=0.05, label="Temperature (Creativity)")
-                                text_top_p = gr.Slider(0.5, 1.0, value=TASK_CONFIGS["text-to-svg-icon"].get("default_top_p", 0.9), step=0.02, label="Top-P")
-                                text_top_k = gr.Slider(10, 100, value=TASK_CONFIGS["text-to-svg-icon"].get("default_top_k", 60), step=5, label="Top-K")
-                                text_rep_penalty = gr.Slider(1.0, 1.5, value=TASK_CONFIGS["text-to-svg-icon"].get("default_repetition_penalty", 1.03), step=0.01, label="Repetition Penalty")
+                                text_temperature = gr.Slider(
+                                    0.1,
+                                    1.0,
+                                    value=TASK_CONFIGS["text-to-svg-icon"].get("default_temperature", 0.5),
+                                    step=0.05,
+                                    label="Temperature",
+                                    info="Icons: 0.3-0.5 · Complex scenes: 0.5-0.7"
+                                )
+                                text_top_p = gr.Slider(
+                                    0.5,
+                                    1.0,
+                                    value=TASK_CONFIGS["text-to-svg-icon"].get("default_top_p", 0.9),
+                                    step=0.02,
+                                    label="Top-P"
+                                )
+                                text_top_k = gr.Slider(
+                                    10,
+                                    100,
+                                    value=TASK_CONFIGS["text-to-svg-icon"].get("default_top_k", 60),
+                                    step=5,
+                                    label="Top-K"
+                                )
+                                text_rep_penalty = gr.Slider(
+                                    1.0,
+                                    1.5,
+                                    value=TASK_CONFIGS["text-to-svg-icon"].get("default_repetition_penalty", 1.03),
+                                    step=0.01,
+                                    label="Repetition Penalty",
+                                    info="Increase (1.08-1.15) if outputs repeat"
+                                )
 
                         text_button = gr.Button("✨ Generate SVG", variant="primary", size="lg")
-                        text_status = gr.Textbox(label="Last Run Status", value="Idle", interactive=False, max_lines=1)
+                        text_status = gr.Textbox(
+                            label="Model Status",
+                            value="Ready (model loads on first generation)",
+                            interactive=False,
+                            max_lines=1
+                        )
                         
-                        if example_texts:
-                            gr.Examples(examples=example_texts, inputs=[text_input], label="Quick Prompts")
+
 
                     # Right Column: Output
                     with gr.Column(scale=2, min_width=500):
                         text_gallery = gr.HTML(
-                            value='<div class="empty-box">Generated SVGs will appear here.</div>',
+                            value='<div class="empty-box">Generated SVGs will appear here once you run generation.</div>',
                             label="Gallery"
                         )
                         text_svg_code = gr.Code(
                             label="SVG Source Code", 
                             language="html", 
-                            lines=10, 
+                            lines=12, 
                             elem_classes=["code-output"],
                             interactive=False
                         )
@@ -858,19 +1100,49 @@ def build_ui():
                             gr.Markdown("### ⚙️ Generation Settings")
                             img_model = gr.Dropdown(choices=AVAILABLE_MODEL_SIZES, value=DEFAULT_MODEL_SIZE, label="Model Size")
                             with gr.Row():
-                                img_num_candidates = gr.Slider(1, MAX_NUM_CANDIDATES, value=DEFAULT_NUM_CANDIDATES, step=1, label="Variations")
-                                img_max_length = gr.Slider(MAX_LENGTH_MIN, MAX_LENGTH_MAX, value=MAX_LENGTH_DEFAULT, step=64, label="Detail Level")
+                                img_num_candidates = gr.Slider(
+                                    1,
+                                    MAX_NUM_CANDIDATES,
+                                    value=DEFAULT_NUM_CANDIDATES,
+                                    step=1,
+                                    label="Number of Candidates",
+                                    info="More candidates = better odds of a great match"
+                                )
+                                img_max_length = gr.Slider(
+                                    MIN_MAX_LENGTH,
+                                    MAX_MAX_LENGTH,
+                                    value=min(MAX_LENGTH, MAX_MAX_LENGTH),
+                                    step=64,
+                                    label="Max Token Length",
+                                    info="Lower = faster & simpler | Higher = slower & detailed"
+                                )
                             
-                            img_replace_bg = gr.Checkbox(label="Auto-remove Background", value=True)
+                            img_replace_bg = gr.Checkbox(
+                                label="Auto-remove Background",
+                                value=True,
+                                info="Enable if your upload has a colored background"
+                            )
                             
                             with gr.Accordion("Advanced Parameters", open=False):
-                                img_temperature = gr.Slider(0.1, 1.0, value=TASK_CONFIGS["image-to-svg"].get("default_temperature", 0.3), step=0.05, label="Temperature")
+                                img_temperature = gr.Slider(
+                                    0.1,
+                                    1.0,
+                                    value=TASK_CONFIGS["image-to-svg"].get("default_temperature", 0.3),
+                                    step=0.05,
+                                    label="Temperature (Lower = accurate)",
+                                    info="0.2-0.4 works best for faithful reproductions"
+                                )
                                 img_top_p = gr.Slider(0.5, 1.0, value=TASK_CONFIGS["image-to-svg"].get("default_top_p", 0.9), step=0.02, label="Top-P")
                                 img_top_k = gr.Slider(10, 100, value=TASK_CONFIGS["image-to-svg"].get("default_top_k", 50), step=5, label="Top-K")
                                 img_rep_penalty = gr.Slider(1.0, 1.5, value=TASK_CONFIGS["image-to-svg"].get("default_repetition_penalty", 1.05), step=0.01, label="Repetition Penalty")
 
                         image_button = gr.Button("✨ Generate from Image", variant="primary", size="lg")
-                        image_status = gr.Textbox(label="Last Run Status", value="Idle", interactive=False, max_lines=1)
+                        image_status = gr.Textbox(
+                            label="Model Status",
+                            value="Ready (model loads on first generation)",
+                            interactive=False,
+                            max_lines=1
+                        )
                         
                         if example_images:
                             gr.Examples(examples=example_images, inputs=[image_input], label="Example Images")
@@ -878,9 +1150,15 @@ def build_ui():
                     with gr.Column(scale=2, min_width=500):
                         with gr.Row():
                             image_processed = gr.Image(label="Processed Input Preview", type="pil", height=150, interactive=False, show_download_button=False)
-                        
+                        gr.HTML(
+                            """
+                            <div class="info-banner warning" style="margin: 8px 0;">
+                                <strong>Tip:</strong> Uploads with transparent or simple backgrounds convert best. Generate multiple candidates and choose the closest match.
+                            </div>
+                            """
+                        )
                         image_gallery = gr.HTML(
-                            value='<div class="empty-box">Generated SVGs will appear here.</div>',
+                            value='<div class="empty-box">Generated SVGs will appear here after generation finishes.</div>',
                             label="Gallery"
                         )
                         image_svg_code = gr.Code(label="SVG Source Code", language="html", lines=10, elem_classes=["code-output"])
@@ -892,7 +1170,7 @@ def build_ui():
                     queue=True,
                 )
 
-        gr.HTML(TIPS_HTML_BOTTOM)
+        gr.HTML(TIPS_HTML)
         gr.HTML(
             """
             <div class="icp-record">
@@ -907,7 +1185,7 @@ def build_ui():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="OmniSVG Runpod Client UI")
     parser.add_argument("--listen", default="0.0.0.0", help="Listen address")
-    parser.add_argument("--port", type=int, default=7860, help="Port")
+    parser.add_argument("--port", type=int, default=7862, help="Port")
     parser.add_argument("--share", action="store_true", help="Enable Gradio share")
     parser.add_argument("--debug", action="store_true", help="Show Gradio errors")
     args = parser.parse_args()

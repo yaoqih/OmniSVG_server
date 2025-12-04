@@ -62,10 +62,9 @@ model_config = config.get("model", {})
 BOS_TOKEN_ID = model_config.get("bos_token_id", 196998)
 EOS_TOKEN_ID = model_config.get("eos_token_id", 196999)
 PAD_TOKEN_ID = model_config.get("pad_token_id", 151643)
-
-MAX_LENGTH_MIN = 256
-MAX_LENGTH_MAX = 2048
-MAX_LENGTH_DEFAULT = 512
+MAX_LENGTH = int(model_config.get("max_length", 1024))
+MIN_MAX_LENGTH = 256
+MAX_MAX_LENGTH = 2048
 
 task_config = config.get("task_configs", {})
 TASK_CONFIGS = {
@@ -203,7 +202,7 @@ def load_models(model_size: str) -> None:
         config_path=CONFIG_PATH,
         model_path=model_path,
         model_size=model_size,
-        pix_len=MAX_LENGTH_MAX,
+        pix_len=MAX_MAX_LENGTH,
         text_len=config.get("text", {}).get("max_length", 200),
         torch_dtype=DTYPE,
     )
@@ -504,7 +503,7 @@ def normalize_params(task_type: str, subtype: str, params: Dict[str, Any]) -> Di
         "repetition_penalty", defaults.get("default_repetition_penalty", 1.05)
     )
     num_candidates = pick_int("num_candidates", DEFAULT_NUM_CANDIDATES)
-    max_length = pick_int("max_length", MAX_LENGTH_DEFAULT)
+    max_length = pick_int("max_length", MAX_LENGTH)
 
     return {
         "temperature": _clamp(temperature, 0.05, 1.5),
@@ -512,7 +511,7 @@ def normalize_params(task_type: str, subtype: str, params: Dict[str, Any]) -> Di
         "top_k": int(_clamp(top_k, 1, 200)),
         "repetition_penalty": _clamp(repetition_penalty, 1.0, 2.0),
         "num_candidates": max(1, min(num_candidates, MAX_NUM_CANDIDATES)),
-        "max_length": max(MAX_LENGTH_MIN, min(max_length, MAX_LENGTH_MAX)),
+        "max_length": max(MIN_MAX_LENGTH, min(max_length, MAX_MAX_LENGTH)),
     }
 
 
@@ -551,9 +550,7 @@ def generate_candidates(
         "pad_token_id": PAD_TOKEN_ID,
         "bos_token_id": BOS_TOKEN_ID,
     }
-    actual_samples = min(
-        MAX_NUM_CANDIDATES + EXTRA_CANDIDATES_BUFFER, num_samples + EXTRA_CANDIDATES_BUFFER
-    )
+    actual_samples = num_samples + EXTRA_CANDIDATES_BUFFER
     candidates: List[Dict[str, Any]] = []
 
     with gen_lock:
@@ -641,6 +638,14 @@ def run_generation(req: PredictRequest, image_override: Optional[Image.Image] = 
     if model_size not in AVAILABLE_MODEL_SIZES:
         raise ValueError(f"model_size must be one of {AVAILABLE_MODEL_SIZES}")
 
+    has_image_input = bool(image_override is not None or req.image_base64)
+    text_len = len((req.text or "").strip()) if req.text else 0
+    print(
+        f"[Gateway] Request | task={req.task_type} | model={model_size} | text_len={text_len} | "
+        f"has_image={has_image_input} | num_candidates={req.num_candidates or 'auto'} | "
+        f"max_length={req.max_length or 'auto'}"
+    )
+
     ensure_model_loaded(model_size)
     subtype = req.task_subtype
     inputs = None
@@ -676,6 +681,11 @@ def run_generation(req: PredictRequest, image_override: Optional[Image.Image] = 
     raw_params = req.dict()
     clean_params = {k: v for k, v in raw_params.items() if v is not None}
     gen_params = normalize_params(req.task_type, subtype or "icon", clean_params)
+    print(
+        "[Gateway] Gen params | temperature={temperature:.2f} | top_p={top_p:.2f} | "
+        "top_k={top_k} | repetition_penalty={repetition_penalty:.2f} | "
+        "max_length={max_length} | num_candidates={num_candidates}".format(**gen_params)
+    )
 
     start_time = time.time()
     candidates = generate_candidates(
@@ -722,6 +732,11 @@ def run_generation(req: PredictRequest, image_override: Optional[Image.Image] = 
             result["primary_png_base64"] = response_candidates[0].get("png_base64")
     else:
         result["message"] = "No valid SVG generated. Try adjusting parameters."
+
+    print(
+        f"[Gateway] Result | status={status} | candidates={len(response_candidates)} | "
+        f"elapsed={elapsed}ms | processed_image={'yes' if processed_image is not None else 'no'}"
+    )
     return result
 
 

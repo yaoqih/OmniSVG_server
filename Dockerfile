@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM python:3.10-slim
+FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -30,7 +30,6 @@ RUN pip install --no-cache-dir --upgrade pip
 
 # Install PyTorch with CUDA 12.1 wheels (compatible with Runpod 12.x)
 # This index serves cu121 wheels; CPU fallback isn't needed on GPU runtimes.
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch torchvision
 
 # Core Python deps
 RUN pip install --no-cache-dir -r requirements.txt

@@ -252,6 +252,7 @@ def pil_to_b64(img: Image.Image) -> str:
 
 
 def detect_text_subtype(text_prompt: str) -> str:
+    """Mirror the richer heuristic from the original Gradio app."""
     text_lower = text_prompt.lower()
     icon_keywords = [
         "icon",
@@ -278,16 +279,42 @@ def detect_text_subtype(text_prompt: str) -> str:
         "person",
         "people",
         "character",
-        "animal",
+        "man",
+        "woman",
+        "boy",
+        "girl",
+        "avatar",
+        "portrait",
+        "face",
+        "head",
+        "body",
         "cat",
         "dog",
         "bird",
+        "animal",
+        "pet",
+        "fox",
+        "rabbit",
+        "sitting",
+        "standing",
+        "walking",
+        "running",
+        "sleeping",
+        "holding",
+        "playing",
+        "house",
+        "building",
+        "tree",
+        "garden",
         "landscape",
+        "mountain",
+        "forest",
         "city",
         "ocean",
+        "beach",
         "sunset",
-        "forest",
-        "mountain",
+        "sunrise",
+        "sky",
     ]
     if any(kw in text_lower for kw in illustration_keywords) or len(text_prompt) > 50:
         return "illustration"
@@ -451,19 +478,33 @@ def normalize_params(task_type: str, subtype: str, params: Dict[str, Any]) -> Di
     else:
         defaults = TASK_CONFIGS["image-to-svg"]
 
-    def pick(name: str, fallback: float) -> float:
+    def pick_float(name: str, fallback: float) -> float:
         key = f"default_{name}"
         value = params.get(name)
         if value is None:
             value = defaults.get(key, fallback)
-        return value
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
 
-    temperature = float(pick("temperature", 0.5))
-    top_p = float(pick("top_p", 0.9))
-    top_k = int(pick("top_k", 50))
-    repetition_penalty = float(pick("repetition_penalty", 1.05))
-    num_candidates = int(params.get("num_candidates", DEFAULT_NUM_CANDIDATES))
-    max_length = int(params.get("max_length", MAX_LENGTH_DEFAULT))
+    def pick_int(name: str, fallback: int) -> int:
+        value = params.get(name)
+        if value is None:
+            value = fallback
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    temperature = pick_float("temperature", defaults.get("default_temperature", 0.5))
+    top_p = pick_float("top_p", defaults.get("default_top_p", 0.9))
+    top_k = pick_int("top_k", defaults.get("default_top_k", 50))
+    repetition_penalty = pick_float(
+        "repetition_penalty", defaults.get("default_repetition_penalty", 1.05)
+    )
+    num_candidates = pick_int("num_candidates", DEFAULT_NUM_CANDIDATES)
+    max_length = pick_int("max_length", MAX_LENGTH_DEFAULT)
 
     return {
         "temperature": _clamp(temperature, 0.05, 1.5),
@@ -632,7 +673,9 @@ def run_generation(req: PredictRequest, image_override: Optional[Image.Image] = 
                 os.unlink(temp_path)
         subtype = "image"
 
-    gen_params = normalize_params(req.task_type, subtype or "icon", req.dict())
+    raw_params = req.dict()
+    clean_params = {k: v for k, v in raw_params.items() if v is not None}
+    gen_params = normalize_params(req.task_type, subtype or "icon", clean_params)
 
     start_time = time.time()
     candidates = generate_candidates(

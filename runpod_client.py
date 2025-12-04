@@ -71,26 +71,29 @@ def _parse_business_output(obj: Dict[str, Any]) -> Dict[str, Any]:
     candidates = out.get("candidates")
     first_candidate = candidates[0] if isinstance(candidates, list) and candidates else {}
 
-    svg = (
-        out.get("primary_svg")
-        or first_candidate.get("svg")
-        or out.get("svg")
-    )
+    svg = out.get("primary_svg") or first_candidate.get("svg") or out.get("svg")
     png_b64 = (
-        out.get("primary_png_base64")
-        or first_candidate.get("png_base64")
-        or out.get("png_base64")
+        out.get("primary_png_base64") or first_candidate.get("png_base64") or out.get("png_base64")
     )
     elapsed_ms = out.get("elapsed_ms")
-    status = data.get("status") or out.get("status")
+    job_status = data.get("status")
+    status = out.get("status") or job_status
     delay_time = data.get("delayTime") if "delayTime" in data else out.get("delayTime")
     exec_time = data.get("executionTime") if "executionTime" in data else out.get("executionTime")
+
+    def _str_or_none(value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            return value
+        if value is None:
+            return None
+        return str(value)
 
     return {
         "svg": svg if isinstance(svg, str) else (json.dumps(svg) if svg is not None else None),
         "png_base64": png_b64 if isinstance(png_b64, str) else None,
         "elapsed_ms": int(elapsed_ms) if isinstance(elapsed_ms, (int, float)) else None,
-        "status": status if isinstance(status, str) else (str(status) if status is not None else None),
+        "status": _str_or_none(status),
+        "job_status": _str_or_none(job_status),
         "delayTime": int(delay_time) if isinstance(delay_time, (int, float)) else None,
         "executionTime": int(exec_time) if isinstance(exec_time, (int, float)) else None,
         "task_type": out.get("task_type"),
@@ -163,8 +166,8 @@ def runsync(
         if isinstance(data, dict) and "error" in data:
             raise RunpodClientError(f"服务错误: {data.get('error')}", resp.status_code, data)
         parsed = _parse_business_output(data)
-        if not parsed.get("svg"):
-            # 尝试兼容非标准返回
+        status = (parsed.get("status") or "").lower()
+        if not parsed.get("svg") and status not in {"no_valid_candidates"}:
             raise RunpodClientError("返回缺少 svg 字段", resp.status_code, data)
         return parsed
     except requests.RequestException as e:
@@ -246,12 +249,15 @@ def run_async(
             if status in ("COMPLETED", "SUCCESS", "FINISHED"):
                 parsed = _parse_business_output(data)
                 # 补充状态与时间信息
-                parsed["status"] = status or parsed.get("status")
+                parsed["job_status"] = parsed.get("job_status") or status
+                if not parsed.get("status"):
+                    parsed["status"] = status
                 if isinstance(delay_time, (int, float)):
                     parsed["delayTime"] = int(delay_time)
                 if isinstance(exec_time, (int, float)):
                     parsed["executionTime"] = int(exec_time)
-                if not parsed.get("svg"):
+                parsed_status = (parsed.get("status") or "").lower()
+                if not parsed.get("svg") and parsed_status not in {"no_valid_candidates"}:
                     raise RunpodClientError("返回缺少 svg 字段", r.status_code, data)
                 return parsed
             if status in ("FAILED", "ERROR"):

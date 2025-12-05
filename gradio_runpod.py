@@ -1202,8 +1202,8 @@ def build_ui():
                                 examples=example_images,
                                 inputs=[image_input],
                                 label=f"Example Images ({image_example_count})",
-                                examples_per_page=6,
-                                elem_id="image-examples",
+                                examples_per_page=16,
+                                # elem_id="image-examples",
                             )
 
                     with gr.Column(scale=2, min_width=500):

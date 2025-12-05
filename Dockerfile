@@ -43,7 +43,7 @@ ENV WEIGHT_PATH=/runpod-volume/OmniSVG \
     QWEN_MODEL_4B=/runpod-volume/Qwen2.5-VL-3B-Instruct \
     QWEN_MODEL_8B=/runpod-volume/Qwen2.5-VL-7B-Instruct \
     SVG_TOKENIZER_CONFIG=/workspace/config.yaml \
-    ENABLE_DUMMY=false
+    ENABLE_DUMMY=true
 
 # Serverless entrypoint
 CMD ["python", "-u", "handler.py"]

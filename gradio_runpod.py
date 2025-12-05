@@ -2,9 +2,14 @@ import argparse
 import base64
 import io
 import os
-from typing import Any, Dict, List, Optional
+import queue
+import threading
+import time
+from collections import deque
+from typing import Any, Deque, Dict, List, Optional
 
 import gradio as gr
+from gradio import Request
 import yaml
 from dotenv import load_dotenv
 from PIL import Image
@@ -64,6 +69,13 @@ try:
     RUNPOD_POLL_BASE_INTERVAL_S = max(1.0, float(os.environ.get("RUNPOD_POLL_BASE_INTERVAL_S", "2.0")))
 except ValueError:
     RUNPOD_POLL_BASE_INTERVAL_S = 2.0
+
+try:
+    KEEPALIVE_INTERVAL_S = max(5, int(os.environ.get("GRADIO_KEEPALIVE_INTERVAL_S", "20")))
+except ValueError:
+    KEEPALIVE_INTERVAL_S = 20
+
+KEEPALIVE_TIP = "Cloudflare closes idle HTTPS streams after ~100s, so we stream progress updates."
 
 
 # --- 现代化 CSS ---
@@ -138,20 +150,6 @@ body {
 .dark .header-logos svg {
     filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.45));
 }
-.header-badge {
-    display: inline-flex;
-    padding: 4px 14px;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.08);
-    font-size: 0.85em;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-strong);
-}
-.dark .header-badge {
-    background: rgba(248, 250, 252, 0.1);
-    color: #f8fafc;
-}
 .header-container h1 {
     margin: 14px 0 0 0;
     font-size: 2.2em;
@@ -212,6 +210,42 @@ body {
 .svg-card svg {
     width: 100%;
     height: 100%;
+}
+
+.pending-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px;
+    border-radius: 14px;
+    border: 1px dashed var(--border-elevated);
+    background: var(--surface-card);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+.pending-card .spinner {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 3px solid rgba(37, 99, 235, 0.2);
+    border-top-color: rgba(37, 99, 235, 0.95);
+    animation: spin 1s linear infinite;
+}
+.pending-card .pending-stage {
+    font-weight: 600;
+    color: var(--text-strong);
+}
+.pending-card .pending-elapsed {
+    font-size: 0.92em;
+    color: var(--text-subtle);
+}
+.pending-card .pending-tip {
+    font-size: 0.85em;
+    color: var(--text-subtle);
+    margin-top: 4px;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 /* 棋盘格背景：让透明 SVG 在深色/浅色下都可见 */
@@ -280,35 +314,6 @@ body {
     margin: 0 0 12px 0;
     font-weight: 600;
 }
-.tip-card {
-    border-radius: 12px;
-    padding: 16px;
-    margin: 12px 0;
-    border: 1px solid var(--border-elevated);
-    color: var(--text-strong);
-    background: var(--surface-card);
-}
-.tip-card ul {
-    margin: 8px 0 0 0;
-    padding-left: 22px;
-}
-.tip-card > strong {
-    display: block;
-    margin-bottom: 6px;
-}
-.tip-card ul {
-    list-style: disc;
-    list-style-position: inside;
-}
-.tip-card ul li {
-    margin-bottom: 6px;
-    color: var(--text-subtle);
-}
-.tip-card ul li strong {
-    display: inline;
-    color: var(--text-strong);
-}
-
 .red-box,
 .blue-box,
 .green-box {
@@ -366,32 +371,6 @@ body {
     font-size: 0.9em;
     border: 1px solid var(--border-elevated);
 }
-.red-tip {
-    color: #f97316;
-    font-weight: 600;
-}
-
-.info-banner {
-    background: var(--surface-card);
-    border: 1px solid var(--border-elevated);
-    border-radius: 12px;
-    padding: 12px 15px;
-    color: var(--text-strong);
-    box-shadow: 0 16px 35px rgba(15, 23, 42, 0.08);
-}
-.info-banner.warning {
-    border-left: 4px solid #f87171;
-}
-.info-banner.info {
-    border-left: 4px solid #3b82f6;
-}
-.info-banner.success {
-    border-left: 4px solid #22c55e;
-}
-.info-banner strong {
-    color: inherit;
-}
-
 .prompt-structure {
     margin-top: 16px;
     padding: 14px;
@@ -410,106 +389,10 @@ body {
     margin-top: 10px;
 }
 
-.tip-card.tip-orange {
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.18), rgba(251, 191, 36, 0.08));
-    border-color: rgba(251, 191, 36, 0.4);
-}
-.dark .tip-card.tip-orange {
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.28), rgba(251, 191, 36, 0.1));
-}
-.tip-card.tip-green {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(16, 185, 129, 0.06));
-    border-color: rgba(16, 185, 129, 0.35);
-}
-.dark .tip-card.tip-green {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(16, 185, 129, 0.1));
-}
-.tip-card.tip-blue {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(59, 130, 246, 0.06));
-    border-color: rgba(59, 130, 246, 0.35);
-}
-.dark .tip-card.tip-blue {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(59, 130, 246, 0.12));
-}
-
-.tip-highlight {
-    margin-top: 16px;
-    padding: 18px;
-    border-radius: 14px;
-    background: var(--surface-card);
-    border: 1px dashed var(--border-elevated);
-    color: var(--text-strong);
-}
-.tip-code {
-    background: var(--surface-alt);
-    border-radius: 8px;
-    padding: 10px 14px;
-    margin-top: 10px;
-    font-family: var(--font-mono);
-    border: 1px solid var(--border-elevated);
-    font-size: 0.92em;
-}
 .tip-note {
     margin-top: 10px;
     color: var(--text-subtle);
     font-size: 0.95em;
-}
-.image-tip-card {
-    margin-bottom: 18px;
-}
-
-.gpu-notice {
-    background: var(--surface-card);
-    border: 1px solid var(--border-elevated);
-    border-radius: 16px;
-    padding: 18px 22px;
-    margin: 22px 0;
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    font-size: 0.95em;
-    color: var(--text-strong);
-}
-.gpu-pill {
-    background: rgba(37, 99, 235, 0.15);
-    color: var(--text-strong);
-    padding: 6px 14px;
-    border-radius: 12px;
-    font-size: 0.78em;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-}
-.dark .gpu-pill {
-    background: rgba(96, 165, 250, 0.25);
-    color: #f8fafc;
-}
-.gpu-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-.gpu-title {
-    font-size: 1em;
-    font-weight: 600;
-}
-.gpu-meta {
-    color: var(--text-subtle);
-    font-size: 0.92em;
-}
-.gpu-inline {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-    font-size: 0.92em;
-    color: var(--text-subtle);
-}
-.gpu-inline span {
-    padding-left: 10px;
-    border-left: 2px solid rgba(148, 163, 184, 0.4);
-}
-.gpu-inline span:first-child {
-    padding-left: 0;
-    border-left: none;
 }
 
 .error-box {
@@ -726,6 +609,100 @@ DEFAULT_EXAMPLE_PROMPTS = [
 ]
 
 
+def _safe_int(value: Optional[Any], default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+_rate_limit_cfg_raw = _config.get("rate_limit")
+_rate_limit_cfg = _rate_limit_cfg_raw if isinstance(_rate_limit_cfg_raw, dict) else {}
+_default_rl = max(0, _safe_int(_rate_limit_cfg.get("requests_per_hour"), 5))
+_env_limit = os.environ.get("IP_RATE_LIMIT_PER_HOUR")
+RATE_LIMIT_REQUESTS_PER_WINDOW = max(
+    0, _safe_int(_env_limit, _default_rl) if _env_limit is not None else _default_rl
+)
+
+_default_window = max(1, _safe_int(_rate_limit_cfg.get("window_seconds"), 3600))
+_env_window = os.environ.get("IP_RATE_LIMIT_WINDOW_SECONDS")
+RATE_LIMIT_WINDOW_SECONDS = max(
+    1, _safe_int(_env_window, _default_window) if _env_window is not None else _default_window
+)
+
+_RATE_LIMIT_LOCK = threading.Lock()
+_RATE_LIMIT_STATE: Dict[str, Deque[float]] = {}
+
+
+def _describe_window(seconds: int) -> str:
+    if seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{hours} 小时"
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{minutes} 分钟"
+    return f"{seconds} 秒"
+
+
+def _format_wait(seconds: float) -> str:
+    seconds = max(1, int(seconds))
+    if seconds < 60:
+        return f"{seconds} 秒"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} 分钟"
+    hours = minutes // 60
+    return f"{hours} 小时"
+
+
+def _header_lookup(headers: Optional[Dict[str, Any]], name: str) -> Optional[str]:
+    if not headers:
+        return None
+    return headers.get(name) or headers.get(name.lower()) or headers.get(name.upper())
+
+
+def get_client_ip(request: Optional[Request]) -> str:
+    if request is None:
+        return "unknown"
+    headers = getattr(request, "headers", None)
+    ip: Optional[str] = None
+    for key in ("cf-connecting-ip", "x-real-ip", "x-forwarded-for"):
+        value = _header_lookup(headers, key)
+        if value:
+            ip = value.split(",")[0].strip()
+            if ip:
+                break
+    if not ip and getattr(request, "client", None):
+        ip = getattr(request.client, "host", None)
+    return ip or "unknown"
+
+
+def consume_rate_limit(request: Optional[Request]) -> Optional[str]:
+    if RATE_LIMIT_REQUESTS_PER_WINDOW <= 0:
+        return None
+    ip = get_client_ip(request)
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW_SECONDS
+    with _RATE_LIMIT_LOCK:
+        bucket = _RATE_LIMIT_STATE.setdefault(ip, deque())
+        while bucket and bucket[0] <= window_start:
+            bucket.popleft()
+        if len(bucket) >= RATE_LIMIT_REQUESTS_PER_WINDOW:
+            retry_after = bucket[0] + RATE_LIMIT_WINDOW_SECONDS - now
+            wait_hint = _format_wait(retry_after)
+            window_desc = _describe_window(RATE_LIMIT_WINDOW_SECONDS)
+            print(
+                f"[RateLimit] Blocked IP {ip}: {len(bucket)}/{RATE_LIMIT_REQUESTS_PER_WINDOW} in {window_desc} window."
+            )
+            return (
+                f"Rate limit reached: 每个 IP 在 {window_desc} 内最多生成 {RATE_LIMIT_REQUESTS_PER_WINDOW} 次。"
+                f" 请约 {wait_hint} 后再试。"
+            )
+        bucket.append(now)
+        _RATE_LIMIT_STATE[ip] = bucket
+    return None
+
+
 def decode_png_base64(b64: Optional[str]) -> Optional[Image.Image]:
     if not b64:
         return None
@@ -843,6 +820,20 @@ def error_panel(message: str) -> str:
     return f'<div class="error-box">{message}</div>'
 
 
+def keepalive_panel(stage: str, elapsed_s: int, tip: Optional[str] = None) -> str:
+    tip_html = f'<div class="pending-tip">{tip}</div>' if tip else ''
+    return f"""
+    <div class=\"pending-card\">
+        <div class=\"spinner\"></div>
+        <div>
+            <div class=\"pending-stage\">{stage}</div>
+            <div class=\"pending-elapsed\">Elapsed: {elapsed_s}s</div>
+            {tip_html}
+        </div>
+    </div>
+    """
+
+
 def handle_text_submit(
     text: str,
     model_size: str,
@@ -852,41 +843,76 @@ def handle_text_submit(
     top_p: float,
     top_k: int,
     repetition_penalty: float,
+    request: Optional[Request] = None,
 ):
     env_err = ensure_env_ready()
     if env_err:
-        return error_panel(env_err), "<!-- env error -->", env_err
+        msg = env_err
+        yield error_panel(msg), "<!-- env error -->", msg
+        return
     if not text.strip():
         msg = "Please provide a prompt."
-        return error_panel(msg), "<!-- empty prompt -->", msg
-    try:
-        # User feedback during generation is handled by Gradio's queue
-        result = run_async(
-            task_type="text-to-svg",
-            text=text,
-            model_size=model_size,
-            num_candidates=int(num_candidates),
-            max_length=int(max_length),
-            temperature=float(temperature),
-            top_p=float(top_p),
-            top_k=int(top_k),
-            repetition_penalty=float(repetition_penalty),
-            return_png=True,
-            timeout_s=RUNPOD_POLL_TIMEOUT_S,
-            base_interval_s=RUNPOD_POLL_BASE_INTERVAL_S,
-        )
-        gallery = create_gallery_html(result.get("candidates"))
-        svg_code = format_svg_code(result.get("candidates"))
-        status_msg = format_status(result)
-        if not result.get("candidates"):
-            gallery = error_panel("No valid SVG generated. Try adjusting parameters or rephrasing.")
-        return gallery, svg_code, status_msg
-    except RunpodClientError as e:
-        msg = f"Runpod Error: {e.message}"
-        return error_panel(msg), "<!-- error -->", msg
-    except Exception as e:
-        msg = f"System Error: {str(e)}"
-        return error_panel(msg), "<!-- error -->", msg
+        yield error_panel(msg), "<!-- empty prompt -->", msg
+        return
+    rate_err = consume_rate_limit(request)
+    if rate_err:
+        yield error_panel(rate_err), "<!-- rate limit -->", rate_err
+        return
+
+    initial_msg = "Submitting request to RunPod..."
+    yield keepalive_panel(initial_msg, 0), "<!-- pending -->", initial_msg
+
+    result_queue: "queue.Queue" = queue.Queue()
+
+    def _runner():
+        try:
+            payload = run_async(
+                task_type="text-to-svg",
+                text=text,
+                model_size=model_size,
+                num_candidates=int(num_candidates),
+                max_length=int(max_length),
+                temperature=float(temperature),
+                top_p=float(top_p),
+                top_k=int(top_k),
+                repetition_penalty=float(repetition_penalty),
+                return_png=True,
+                timeout_s=RUNPOD_POLL_TIMEOUT_S,
+                base_interval_s=RUNPOD_POLL_BASE_INTERVAL_S,
+            )
+            result_queue.put(("ok", payload))
+        except Exception as exc:
+            result_queue.put(("err", exc))
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    start_ts = time.time()
+    keepalive_count = 0
+    while worker.is_alive():
+        worker.join(timeout=KEEPALIVE_INTERVAL_S)
+        if not worker.is_alive():
+            break
+        keepalive_count += 1
+        elapsed = int(time.time() - start_ts)
+        status_msg = f"Model is generating SVGs... {elapsed}s elapsed (update {keepalive_count})"
+        yield keepalive_panel("Model is generating SVG candidates", elapsed, KEEPALIVE_TIP), "<!-- pending -->", status_msg
+
+    status, payload = result_queue.get()
+    if status == "err":
+        if isinstance(payload, RunpodClientError):
+            msg = f"Runpod Error: {payload.message}"
+        else:
+            msg = f"System Error: {str(payload)}"
+        yield error_panel(msg), "<!-- error -->", msg
+        return
+
+    result = payload
+    gallery = create_gallery_html(result.get("candidates"))
+    svg_code = format_svg_code(result.get("candidates"))
+    status_msg = format_status(result)
+    if not result.get("candidates"):
+        gallery = error_panel("No valid SVG generated. Try adjusting parameters or rephrasing.")
+    yield gallery, svg_code, status_msg
 
 
 def handle_image_submit(
@@ -899,43 +925,84 @@ def handle_image_submit(
     top_k: int,
     repetition_penalty: float,
     replace_background: bool,
+    request: Optional[Request] = None,
 ):
     env_err = ensure_env_ready()
     if env_err:
-        return error_panel(env_err), "<!-- env error -->", None, env_err
+        msg = env_err
+        yield error_panel(msg), "<!-- env error -->", None, msg
+        return
     if image is None:
         msg = "Please upload an image."
-        return error_panel(msg), "<!-- missing image -->", None, msg
+        yield error_panel(msg), "<!-- missing image -->", None, msg
+        return
+    rate_err = consume_rate_limit(request)
+    if rate_err:
+        yield error_panel(rate_err), "<!-- rate limit -->", image, rate_err
+        return
     try:
         img_b64 = encode_image_to_base64(image)
-        result = run_async(
-            task_type="image-to-svg",
-            image_base64=img_b64,
-            model_size=model_size,
-            num_candidates=int(num_candidates),
-            max_length=int(max_length),
-            temperature=float(temperature),
-            top_p=float(top_p),
-            top_k=int(top_k),
-            repetition_penalty=float(repetition_penalty),
-            replace_background=replace_background,
-            return_png=True,
-            timeout_s=RUNPOD_POLL_TIMEOUT_S,
-            base_interval_s=RUNPOD_POLL_BASE_INTERVAL_S,
-        )
-        gallery = create_gallery_html(result.get("candidates"))
-        svg_code = format_svg_code(result.get("candidates"))
-        status_msg = format_status(result)
-        processed_img = decode_png_base64(result.get("processed_input_png_base64")) or image
-        if not result.get("candidates"):
-            gallery = error_panel("No valid SVG generated.")
-        return gallery, svg_code, processed_img, status_msg
     except RunpodClientError as e:
         msg = f"Runpod Error: {e.message}"
-        return error_panel(msg), "<!-- error -->", None, msg
-    except Exception as e:
-        msg = f"System Error: {str(e)}"
-        return error_panel(msg), "<!-- error -->", None, msg
+        yield error_panel(msg), "<!-- error -->", None, msg
+        return
+
+    initial_msg = "Submitting image to RunPod..."
+    yield keepalive_panel(initial_msg, 0), "<!-- pending -->", image, initial_msg
+
+    result_queue: "queue.Queue" = queue.Queue()
+
+    def _runner():
+        try:
+            payload = run_async(
+                task_type="image-to-svg",
+                image_base64=img_b64,
+                model_size=model_size,
+                num_candidates=int(num_candidates),
+                max_length=int(max_length),
+                temperature=float(temperature),
+                top_p=float(top_p),
+                top_k=int(top_k),
+                repetition_penalty=float(repetition_penalty),
+                replace_background=replace_background,
+                return_png=True,
+                timeout_s=RUNPOD_POLL_TIMEOUT_S,
+                base_interval_s=RUNPOD_POLL_BASE_INTERVAL_S,
+            )
+            result_queue.put(("ok", payload))
+        except Exception as exc:
+            result_queue.put(("err", exc))
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    start_ts = time.time()
+    keepalive_count = 0
+    while worker.is_alive():
+        worker.join(timeout=KEEPALIVE_INTERVAL_S)
+        if not worker.is_alive():
+            break
+        keepalive_count += 1
+        elapsed = int(time.time() - start_ts)
+        status_msg = f"Processing image... {elapsed}s elapsed (update {keepalive_count})"
+        yield keepalive_panel("Model is transcribing your image", elapsed, KEEPALIVE_TIP), "<!-- pending -->", image, status_msg
+
+    status, payload = result_queue.get()
+    if status == "err":
+        if isinstance(payload, RunpodClientError):
+            msg = f"Runpod Error: {payload.message}"
+        else:
+            msg = f"System Error: {str(payload)}"
+        yield error_panel(msg), "<!-- error -->", None, msg
+        return
+
+    result = payload
+    gallery = create_gallery_html(result.get("candidates"))
+    svg_code = format_svg_code(result.get("candidates"))
+    status_msg = format_status(result)
+    processed_img = decode_png_base64(result.get("processed_input_png_base64")) or image
+    if not result.get("candidates"):
+        gallery = error_panel("No valid SVG generated.")
+    yield gallery, svg_code, processed_img, status_msg
 
 
 def build_ui():
@@ -986,7 +1053,7 @@ def build_ui():
     }
     """
 
-    with gr.Blocks(title="OmniSVG Studio", css=CUSTOM_CSS, theme=theme,js=dark_js) as demo:
+    with gr.Blocks(title="OmniSVG Studio", css=CUSTOM_CSS, theme=theme, js=dark_js) as demo:
         gr.HTML(
             """
             <script>
@@ -1016,7 +1083,7 @@ def build_ui():
             </div>
             """
         )
-        
+
         if env_err:
             gr.HTML(
                 f"""

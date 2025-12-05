@@ -1,3 +1,4 @@
+import base64
 import io
 import os
 import time
@@ -6,8 +7,6 @@ from typing import Any, Dict, Optional
 import cairosvg
 import runpod
 from PIL import Image
-
-import service
 
 # Avoid tokenizer parallelism warnings
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -31,6 +30,13 @@ def build_dummy_svg(text: Optional[str], mode: str) -> str:
 </svg>"""
 
 
+def _pil_to_b64(image: Image.Image) -> str:
+    """Encode a Pillow image into PNG base64 without importing heavy service module."""
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
 def build_dummy_response(task_type: str, payload: Dict[str, Any], elapsed_ms: int) -> Dict[str, Any]:
     svg_code = build_dummy_svg(payload.get("text") if task_type == "text-to-svg" else "image", task_type)
     return_png = payload.get("return_png", True)
@@ -38,12 +44,12 @@ def build_dummy_response(task_type: str, payload: Dict[str, Any], elapsed_ms: in
     if return_png:
         png_data = cairosvg.svg2png(bytestring=svg_code.encode("utf-8"))
         png_image = Image.open(io.BytesIO(png_data))
-        candidate["png_base64"] = service.pil_to_b64(png_image)
+        candidate["png_base64"] = _pil_to_b64(png_image)
     result = {
         "status": "ok",
         "dummy": True,
         "task_type": task_type,
-        "model_size": payload.get("model_size") or service.DEFAULT_MODEL_SIZE,
+        "model_size": payload.get("model_size") or os.environ.get("DEFAULT_MODEL_SIZE", "4B"),
         "elapsed_ms": elapsed_ms,
         "parameters": {},
         "num_candidates": 1,
@@ -73,6 +79,9 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
 
         if os.environ.get("ENABLE_DUMMY", "true").lower() == "true":
             return build_dummy_response(task_type, payload, int((time.time() - t0) * 1000))
+
+        # Import service lazily to reduce startup latency in dummy test runs.
+        import service  # type: ignore
 
         request_model = service.PredictRequest(**payload)
         result = service.run_generation(request_model)
